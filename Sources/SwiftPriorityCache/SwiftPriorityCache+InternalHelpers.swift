@@ -1,0 +1,36 @@
+import Foundation
+
+extension SwiftPriorityCache {
+    private static func indexURL(directory: URL) -> URL {
+        return directory.appending(path: "SwiftPriorityCacheIndex.json", directoryHint: .notDirectory)
+    }
+
+    static func makeDirectory() throws -> URL {
+        // `.cachesDirectory` is not used because this cache is designed to be cleared manually
+        let url = try URL(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            create: true
+        ).appending(
+            component: "SwiftPriorityCache",
+            directoryHint: .isDirectory
+        )
+        if !url.isExistingDirectory {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+        return url
+    }
+
+    static func makeIndex(defaultMaxTotalSize: UInt64, directory: URL) throws -> SwiftPriorityCacheIndex {
+        let url = indexURL(directory: directory)
+        if url.isExistingRegularFile {
+            return try JSONDecoder().decode(SwiftPriorityCacheIndex.self, from: Data(contentsOf: url))
+        } else {
+            return SwiftPriorityCacheIndex(maxTotalSize: defaultMaxTotalSize)
+        }
+    }
+
+    func saveIndex() throws {
+        try JSONEncoder().encode(index).write(to: SwiftPriorityCache.indexURL(directory: directory))
+    }
+}
