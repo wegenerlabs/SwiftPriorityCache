@@ -18,9 +18,9 @@ extension URL {
 
     var capacity: UInt64? {
         do {
-            guard let capacity = try self.resourceValues(
+            guard let capacity = try resourceValues(
                 forKeys: [
-                    .volumeAvailableCapacityKey
+                    .volumeAvailableCapacityKey,
                 ]
             ).volumeAvailableCapacity else {
                 return nil

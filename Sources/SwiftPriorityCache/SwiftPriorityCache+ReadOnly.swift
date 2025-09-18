@@ -3,12 +3,12 @@ import Foundation
 /// Public read-only API for `SwiftPriorityCache`.
 public extension SwiftPriorityCache {
     /// Determines whether an item can be cached.
-    func canSave(priority newPriority: UInt64, size newSize: UInt64, url newURL: URL) -> Bool {
+    func canSave(priority newPriority: UInt64, size newSize: UInt64, remoteURL newURL: URL) -> Bool {
         if newSize > index.maxTotalSize {
             // Short-circuit: Item is larger than allowed cache size
             return false
         }
-        if let capacity =  directory.capacity, newSize > capacity {
+        if let capacity = directory.capacity, newSize > capacity {
             // Short-circuit: Item is larger than available disk capacity
             return false
         }

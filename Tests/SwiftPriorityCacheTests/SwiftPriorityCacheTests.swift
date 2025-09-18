@@ -32,7 +32,7 @@ struct SwiftPriorityCacheTests {
             let (data, _) = try await URLSession.shared.data(from: url)
 
             // Save with a given priority (higher = more important)
-            let saved = try await cache.save(priority: 10, data: data, url: url)
+            let saved = try await cache.save(priority: 10, data: data, remoteURL: url)
             print("Saved: \(saved)")
 
             // Check if the item is cached
@@ -78,15 +78,15 @@ struct SwiftPriorityCacheTests {
             let cache = try SwiftPriorityCache(defaultMaxTotalSize: 120, directory: dir)
 
             // Save two items that fit exactly
-            try #require(await cache.save(priority: 10, data: data(ofSize: 60), url: url("/img/high.jpg")))
-            try #require(await cache.save(priority: 5, data: data(ofSize: 60), url: url("/img/low.jpg")))
+            try #require(await cache.save(priority: 10, data: data(ofSize: 60), remoteURL: url("/img/high.jpg")))
+            try #require(await cache.save(priority: 5, data: data(ofSize: 60), remoteURL: url("/img/low.jpg")))
             #expect(await cache.maxTotalSize == 120)
             #expect(await cache.contains(remoteURL: url("/img/high.jpg")))
             #expect(await cache.contains(remoteURL: url("/img/low.jpg")))
             #expect(await cache.index.totalSize == 120)
 
             // Add a third item that would push total to 180; lowest-priority (5) should be evicted.
-            try #require(await cache.save(priority: 7, data: data(ofSize: 60), url: url("/img/mid.jpg")))
+            try #require(await cache.save(priority: 7, data: data(ofSize: 60), remoteURL: url("/img/mid.jpg")))
 
             // Post-eviction: should have priorities [10, 7], total 120; "low" removed from disk and index.
             let items = await cache.index.items
@@ -106,14 +106,14 @@ struct SwiftPriorityCacheTests {
             let remote = url("/asset/file.bin")
 
             // Initial save
-            try #require(await cache.save(priority: 3, data: data(ofSize: 200), url: remote))
+            try #require(await cache.save(priority: 3, data: data(ofSize: 200), remoteURL: remote))
             let idx1 = await cache.index
             #expect(idx1.items.count == 1)
             #expect(idx1.totalSize == 200)
             #expect(idx1.items[remote.sha256]?.priority == 3)
 
             // Save again with same key but different size/priority
-            try #require(await cache.save(priority: 9, data: data(ofSize: 350), url: remote))
+            try #require(await cache.save(priority: 9, data: data(ofSize: 350), remoteURL: remote))
             let idx2 = await cache.index
             #expect(idx2.items.count == 1) // replaced, not duplicated
             #expect(idx2.totalSize == 350)
@@ -127,8 +127,8 @@ struct SwiftPriorityCacheTests {
         try await withTempDirectory { dir in
             let cache = try SwiftPriorityCache(defaultMaxTotalSize: 1000, directory: dir)
 
-            try #require(await cache.save(priority: 10, data: data(ofSize: 30), url: url("/a.png")))
-            try #require(await cache.save(priority: 5, data: data(ofSize: 30), url: url("/b.png")))
+            try #require(await cache.save(priority: 10, data: data(ofSize: 30), remoteURL: url("/a.png")))
+            try #require(await cache.save(priority: 5, data: data(ofSize: 30), remoteURL: url("/b.png")))
             #expect(await cache.index.totalSize == 60)
 
             // Lower max to force eviction of the lowest-priority item
@@ -146,7 +146,7 @@ struct SwiftPriorityCacheTests {
         try await withTempDirectory { dir in
             let cache = try SwiftPriorityCache(defaultMaxTotalSize: 512, directory: dir)
 
-            try #require(await cache.save(priority: 1, data: data(ofSize: 100), url: url("/c.dat")))
+            try #require(await cache.save(priority: 1, data: data(ofSize: 100), remoteURL: url("/c.dat")))
             let beforeClearMax = await cache.maxTotalSize
             #expect(await cache.index.items.count == 1)
 
@@ -171,8 +171,8 @@ struct SwiftPriorityCacheTests {
             let remoteWithExt = url("/pics/photo.png")
             let remoteNoExt = url("/docs/readme")
 
-            try #require(await cache.save(priority: 4, data: data(ofSize: 10), url: remoteWithExt))
-            try #require(await cache.save(priority: 4, data: data(ofSize: 10), url: remoteNoExt))
+            try #require(await cache.save(priority: 4, data: data(ofSize: 10), remoteURL: remoteWithExt))
+            try #require(await cache.save(priority: 4, data: data(ofSize: 10), remoteURL: remoteNoExt))
 
             // uncheckedLocalURL uses hash + optional extension
             let uncheckedExtURL = cache.uncheckedLocalURL(remoteURL: remoteWithExt)
@@ -210,19 +210,36 @@ struct SwiftPriorityCacheTests {
             let cache = try SwiftPriorityCache(defaultMaxTotalSize: 8, directory: dir)
             let existingMemberURL = url("/pics/photo.png")
             let newMemberURL = url("/docs/readme")
-            try #require(await cache.save(priority: 1, data: data(ofSize: 7), url: existingMemberURL))
+            try #require(await cache.save(priority: 1, data: data(ofSize: 7), remoteURL: existingMemberURL))
 
             // vary priority
-            #expect(!(await cache.canSave(priority: 0, size: 8, url: newMemberURL)))
-            #expect(await cache.canSave(priority: 1, size: 8, url: newMemberURL))
+            #expect(!(await cache.canSave(priority: 0, size: 8, remoteURL: newMemberURL)))
+            #expect(await cache.canSave(priority: 1, size: 8, remoteURL: newMemberURL))
 
             // vary size
-            #expect(!(await cache.canSave(priority: 0, size: 2, url: newMemberURL)))
-            #expect(await cache.canSave(priority: 0, size: 1, url: newMemberURL))
+            #expect(!(await cache.canSave(priority: 0, size: 2, remoteURL: newMemberURL)))
+            #expect(await cache.canSave(priority: 0, size: 1, remoteURL: newMemberURL))
 
             // vary url
-            #expect(!(await cache.canSave(priority: 0, size: 8, url: newMemberURL)))
-            #expect(await cache.canSave(priority: 0, size: 8, url: existingMemberURL))
+            #expect(!(await cache.canSave(priority: 0, size: 8, remoteURL: newMemberURL)))
+            #expect(await cache.canSave(priority: 0, size: 8, remoteURL: existingMemberURL))
+        }
+    }
+
+    @Test
+    func testRemove() async throws {
+        try await withTempDirectory { dir in
+            let cache = try SwiftPriorityCache(defaultMaxTotalSize: 100, directory: dir)
+            let remoteURL = url("/pics/photo.png")
+            try #require(await cache.save(priority: 6, data: data(ofSize: 100), remoteURL: remoteURL))
+            try #require(await cache.index.totalSize == 100)
+            let localURL = cache.localURL(remoteURL: remoteURL)!
+            try #require(localURL.isExistingRegularFile)
+
+            // remove
+            try await cache.remove(remoteURL: remoteURL)
+            #expect(await cache.index.totalSize == 0)
+            #expect(cache.localURL(remoteURL: remoteURL) == nil)
         }
     }
 }

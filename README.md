@@ -18,7 +18,7 @@ let url = URL(string: "https://example.com/data.csv")!
 let (data, _) = try await URLSession.shared.data(from: url)
 
 // Save with a given priority (higher = more important)
-let saved = try await cache.save(priority: 10, data: data, url: url)
+let saved = try await cache.save(priority: 10, data: data, remoteURL: url)
 print("Saved: \(saved)")
 
 // Check if the item is cached

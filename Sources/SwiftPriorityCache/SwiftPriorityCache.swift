@@ -38,22 +38,22 @@ public actor SwiftPriorityCache {
     }
 
     /// Adds an item to the cache. Evicts other items if necessary. Returns true if the item was cached.
-    public func save(priority: UInt64, data: Data, url: URL) throws -> Bool {
+    public func save(priority: UInt64, data: Data, remoteURL: URL) throws -> Bool {
         // Check capacity
         let size = UInt64(data.count)
-        guard canSave(priority: priority, size: size, url: url) else {
+        guard canSave(priority: priority, size: size, remoteURL: remoteURL) else {
             return false
         }
         // Store item on disk
-        try data.write(to: localURL(hash: url.sha256, pathExtension: url.pathExtension))
+        try data.write(to: localURL(hash: remoteURL.sha256, pathExtension: remoteURL.pathExtension))
         // Remove any item with the same key
-        index.items.removeValue(forKey: url.sha256)
+        index.items.removeValue(forKey: remoteURL.sha256)
         // Insert the item ahead of other items with equal or lower priority
         // Items with equal priority are evicted FIFO
         let insertionIndex: Int = index.items.values.firstIndex { item in
             item.priority <= priority
         } ?? index.items.values.endIndex
-        index.items.updateValue(SwiftPriorityCacheItem(priority: priority, size: size, pathExtension: url.pathExtension), forKey: url.sha256, insertingAt: insertionIndex)
+        index.items.updateValue(SwiftPriorityCacheItem(priority: priority, size: size, pathExtension: remoteURL.pathExtension), forKey: remoteURL.sha256, insertingAt: insertionIndex)
         // Evict items if necessary and persist index
         try finalize()
         return true
@@ -85,6 +85,15 @@ public actor SwiftPriorityCache {
     private func localURL(hash: String, pathExtension: String) -> URL {
         let fileName = pathExtension.isEmpty ? hash : "\(hash).\(pathExtension)"
         return directory.appending(path: fileName, directoryHint: .notDirectory)
+    }
+
+    /// Remove the item representing the given remoteURL from the cache
+    public func remove(remoteURL: URL) throws {
+        if let localURL = localURL(remoteURL: remoteURL) {
+            try FileManager.default.removeItem(at: localURL)
+        }
+        index.items.removeValue(forKey: remoteURL.sha256)
+        try saveIndex()
     }
 
     /// Removes all cached items and resets the index. The maximum total size is retained.
