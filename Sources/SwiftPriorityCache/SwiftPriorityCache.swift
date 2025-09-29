@@ -92,8 +92,9 @@ public actor SwiftPriorityCache {
         if let localURL = localURL(remoteURL: remoteURL) {
             try FileManager.default.removeItem(at: localURL)
         }
-        index.items.removeValue(forKey: remoteURL.sha256)
-        try saveIndex()
+        if let _ = index.items.removeValue(forKey: remoteURL.sha256) {
+            try saveIndex()
+        }
     }
 
     /// Removes all cached items and resets the index. The maximum total size is retained.
