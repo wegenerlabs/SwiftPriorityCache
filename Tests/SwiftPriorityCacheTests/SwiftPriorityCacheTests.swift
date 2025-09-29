@@ -242,4 +242,23 @@ struct SwiftPriorityCacheTests {
             #expect(cache.localURL(remoteURL: remoteURL) == nil)
         }
     }
+
+    @Test
+    func changePriority() async throws {
+        try await withTempDirectory { dir in
+            let cache = try SwiftPriorityCache(defaultMaxTotalSize: 8, directory: dir)
+            let existingMemberURL = url("/pics/photo.png")
+            let newMemberURL = url("/docs/readme")
+            try #require(await cache.save(priority: 2, data: data(ofSize: 8), remoteURL: existingMemberURL))
+
+            // try to insert another item with priority 1
+            #expect(!(await cache.canSave(priority: 1, size: 8, remoteURL: newMemberURL)))
+
+            // change existing item priority to zero
+            try #require(await cache.changePriority(0, remoteURL: existingMemberURL))
+
+            // try again to insert another item with priority 1
+            #expect(await cache.canSave(priority: 1, size: 8, remoteURL: newMemberURL))
+        }
+    }
 }

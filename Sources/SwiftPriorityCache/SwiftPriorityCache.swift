@@ -46,6 +46,23 @@ public actor SwiftPriorityCache {
         }
         // Store item on disk
         try data.write(to: localURL(hash: remoteURL.sha256, pathExtension: remoteURL.pathExtension))
+        // Update index
+        try updateIndex(priority: priority, size: size, remoteURL: remoteURL)
+        return true
+    }
+
+    /// Changes the priority of a cached item. Returns true if the item is cached and if the priority was changed.
+    public func changePriority(_ priority: UInt64, remoteURL: URL) throws -> Bool {
+        // Determine if the index needs to change
+        guard let oldItem = index.items[remoteURL.sha256], oldItem.priority != priority else {
+            return false
+        }
+        // Update index
+        try updateIndex(priority: priority, size: oldItem.size, remoteURL: remoteURL)
+        return true
+    }
+
+    private func updateIndex(priority: UInt64, size: UInt64, remoteURL: URL) throws {
         // Remove any item with the same key
         index.items.removeValue(forKey: remoteURL.sha256)
         // Insert the item ahead of other items with equal or lower priority
@@ -56,7 +73,6 @@ public actor SwiftPriorityCache {
         index.items.updateValue(SwiftPriorityCacheItem(priority: priority, size: size, pathExtension: remoteURL.pathExtension), forKey: remoteURL.sha256, insertingAt: insertionIndex)
         // Evict items if necessary and persist index
         try finalize()
-        return true
     }
 
     /// Gets the maximum total size of the cache.
