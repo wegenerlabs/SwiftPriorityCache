@@ -92,7 +92,7 @@ public actor SwiftPriorityCache {
     private func finalize() throws {
         // Evict items from the back until the cache is within the size limit
         while index.totalSize > index.maxTotalSize {
-            let element = index.items.elements.removeLast()
+            let element = index.items.removeLast()
             try FileManager.default.removeItem(at: localURL(hash: element.key, pathExtension: element.value.pathExtension))
         }
         // Persist index
