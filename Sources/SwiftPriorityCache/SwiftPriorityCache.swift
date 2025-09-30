@@ -35,6 +35,7 @@ public actor SwiftPriorityCache {
     public init(defaultMaxTotalSize: UInt64, directory: URL) throws {
         self.directory = directory
         index = try SwiftPriorityCache.makeIndex(defaultMaxTotalSize: defaultMaxTotalSize, directory: directory)
+        try SwiftPriorityCache.saveIndex(index: index, directory: directory)
     }
 
     /// Adds an item to the cache. Evicts other items if necessary. Returns true if the item was cached.
@@ -95,7 +96,7 @@ public actor SwiftPriorityCache {
             try FileManager.default.removeItem(at: localURL(hash: element.key, pathExtension: element.value.pathExtension))
         }
         // Persist index
-        try saveIndex()
+        try SwiftPriorityCache.saveIndex(index: index, directory: directory)
     }
 
     private func localURL(hash: String, pathExtension: String) -> URL {
@@ -109,7 +110,7 @@ public actor SwiftPriorityCache {
             try FileManager.default.removeItem(at: localURL)
         }
         if let _ = index.items.removeValue(forKey: remoteURL.sha256) {
-            try saveIndex()
+            try SwiftPriorityCache.saveIndex(index: index, directory: directory)
         }
     }
 
@@ -118,6 +119,6 @@ public actor SwiftPriorityCache {
         try FileManager.default.removeItem(at: directory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         index = SwiftPriorityCacheIndex(maxTotalSize: index.maxTotalSize)
-        try saveIndex()
+        try SwiftPriorityCache.saveIndex(index: index, directory: directory)
     }
 }

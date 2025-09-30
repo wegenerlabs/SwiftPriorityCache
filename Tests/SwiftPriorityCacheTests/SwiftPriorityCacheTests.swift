@@ -2,12 +2,13 @@ import Foundation
 @testable import SwiftPriorityCache
 import Testing
 
-private func withTempDirectory(_ body: (URL) async throws -> Void) async throws {
+private func withTempDirectory(_ body: (URL) async throws -> SwiftPriorityCache) async throws {
     let tmpRoot = FileManager.default.temporaryDirectory
     let dir = tmpRoot.appending(path: "SwiftPriorityCacheTests-\(UUID().uuidString)", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: dir) }
-    try await body(dir)
+    let cache = try await body(dir)
+    try await cache.checkIntegrity()
 }
 
 private func data(ofSize size: Int) -> Data {
@@ -19,35 +20,98 @@ private func url(_ path: String) -> URL {
     URL(string: "https://example.com\(path)")!
 }
 
+private extension SwiftPriorityCache {
+    func checkIntegrity() throws {
+        // 1) priorities must be non-increasing
+        let values = index.items.values
+        if values.count > 1 {
+            for i in 1 ..< values.count {
+                let prev = values[values.index(values.startIndex, offsetBy: i - 1)]
+                let curr = values[values.index(values.startIndex, offsetBy: i)]
+                #expect(
+                    prev.priority >= curr.priority
+                )
+            }
+        }
+
+        // 2) totalSize must equal the sum of item sizes
+        let summedSizes = values.map { $0.size }.reduce(0, +)
+        #expect(
+            summedSizes == index.totalSize
+        )
+
+        // 3) totalSize must not exceed maxTotalSize
+        #expect(
+            index.totalSize <= index.maxTotalSize
+        )
+
+        // 4) each indexed file must exist on disk with the recorded size
+        var actualTotal: UInt64 = 0
+        for (hash, item) in index.items {
+            let fileName = item.pathExtension.isEmpty ? hash : "\(hash).\(item.pathExtension)"
+            let fileURL = directory.appending(path: fileName, directoryHint: .notDirectory)
+
+            #expect(
+                fileURL.isExistingRegularFile
+            )
+
+            let data = try Data(contentsOf: fileURL)
+            actualTotal += UInt64(data.count)
+            #expect(
+                UInt64(data.count) == item.size
+            )
+        }
+
+        // 5) there must not be any orphaned files on disk
+        let urls = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants, .skipsSubdirectoryDescendants]
+        )
+        #expect(urls.count == index.items.count + 1)
+    }
+}
+
 @Suite
 struct SwiftPriorityCacheTests {
     @Test
-    func readmeExample() async throws {
+    func simpleExample() async throws {
         try await withTempDirectory { dir in
-            // Create or load a cache with a maximum size of 100 MB
             let cache = try SwiftPriorityCache(defaultMaxTotalSize: 100 * 1024 * 1024, directory: dir)
 
-            // Example URL and data
+            // Load remote data
             let url = URL(string: "https://example.com/data.csv")!
             let (data, _) = try await URLSession.shared.data(from: url)
+            try #require(data.count > 0)
 
-            // Save with a given priority (higher = more important)
+            // Save with a given priority
             let saved = try await cache.save(priority: 10, data: data, remoteURL: url)
-            print("Saved: \(saved)")
+            #expect(saved)
 
             // Check if the item is cached
             if await cache.contains(remoteURL: url),
                let localURL = cache.localURL(remoteURL: url)
             {
-                print("Cache URL: \(localURL)")
-
-                // Load the cached file back into memory
                 let cachedData = try Data(contentsOf: localURL)
-                print("Cache data size: \(cachedData.count)")
+                #expect(cachedData == data)
             }
 
-            // Clear the cache
-            try await cache.clear()
+            // Check index item
+            let key = url.sha256
+            assert(key == "16c128e58778706ecf5969cfacbdedd39516e682f42c1b638c067e8fbf2f4f94")
+            let item = await cache.index.items[url.sha256]!
+            #expect(item.priority == 10)
+            #expect(item.size == data.count)
+            #expect(item.pathExtension == "csv")
+
+            // Check cache integrity
+            try await cache.checkIntegrity()
+
+            // Remove the item
+            try await cache.remove(remoteURL: url)
+            #expect(await cache.index.totalSize == 0)
+
+            return cache
         }
     }
 
@@ -64,11 +128,11 @@ struct SwiftPriorityCacheTests {
             // The in-memory index should reflect the default max for a brand new cache
             #expect(await cache.maxTotalSize == defaultMax)
 
-            // A brand-new index is not persisted until finalize/save/clear happens
-            #expect(!indexURL.isExistingRegularFile)
-
+            try await cache.checkIntegrity()
             try await cache.clear()
             #expect(indexURL.isExistingRegularFile)
+
+            return cache
         }
     }
 
@@ -96,6 +160,8 @@ struct SwiftPriorityCacheTests {
             #expect(await cache.contains(remoteURL: url("/img/high.jpg")))
             #expect(await cache.contains(remoteURL: url("/img/mid.jpg")))
             #expect(!(await cache.contains(remoteURL: url("/img/low.jpg"))))
+
+            return cache
         }
     }
 
@@ -119,6 +185,8 @@ struct SwiftPriorityCacheTests {
             #expect(idx2.totalSize == 350)
             #expect(idx2.items[remote.sha256]?.priority == 9)
             #expect(idx2.items[remote.sha256]?.size == 350)
+
+            return cache
         }
     }
 
@@ -138,6 +206,8 @@ struct SwiftPriorityCacheTests {
             #expect(await cache.index.totalSize == 30)
             #expect(await cache.contains(remoteURL: url("/a.png")))
             #expect(!(await cache.contains(remoteURL: url("/b.png"))))
+
+            return cache
         }
     }
 
@@ -150,6 +220,7 @@ struct SwiftPriorityCacheTests {
             let beforeClearMax = await cache.maxTotalSize
             #expect(await cache.index.items.count == 1)
 
+            try await cache.checkIntegrity()
             try await cache.clear()
 
             // retained
@@ -161,6 +232,8 @@ struct SwiftPriorityCacheTests {
             #expect(cache.localURL(remoteURL: url("/c.dat")) == nil)
             // And directory should exist again
             #expect(dir.isExistingDirectory)
+
+            return cache
         }
     }
 
@@ -187,6 +260,8 @@ struct SwiftPriorityCacheTests {
             // localURL should see both as existing files
             #expect(cache.localURL(remoteURL: remoteWithExt) != nil)
             #expect(cache.localURL(remoteURL: remoteNoExt) != nil)
+
+            return cache
         }
     }
 
@@ -197,10 +272,13 @@ struct SwiftPriorityCacheTests {
             #expect(!dir.isExistingRegularFile)
             #expect(dir.capacity! > 0)
             let cache = try SwiftPriorityCache(defaultMaxTotalSize: 0, directory: dir)
+            try await cache.checkIntegrity()
             try await cache.clear() // trigger index save
             let indexURL = dir.appending(path: "SwiftPriorityCacheIndex.json", directoryHint: .notDirectory)
             #expect(!indexURL.isExistingDirectory)
             #expect(indexURL.isExistingRegularFile)
+
+            return cache
         }
     }
 
@@ -223,6 +301,8 @@ struct SwiftPriorityCacheTests {
             // vary url
             #expect(!(await cache.canSave(priority: 0, size: 8, remoteURL: newMemberURL)))
             #expect(await cache.canSave(priority: 0, size: 8, remoteURL: existingMemberURL))
+
+            return cache
         }
     }
 
@@ -240,6 +320,8 @@ struct SwiftPriorityCacheTests {
             try await cache.remove(remoteURL: remoteURL)
             #expect(await cache.index.totalSize == 0)
             #expect(cache.localURL(remoteURL: remoteURL) == nil)
+
+            return cache
         }
     }
 
@@ -259,6 +341,8 @@ struct SwiftPriorityCacheTests {
 
             // try again to insert another item with priority 1
             #expect(await cache.canSave(priority: 1, size: 8, remoteURL: newMemberURL))
+
+            return cache
         }
     }
 }

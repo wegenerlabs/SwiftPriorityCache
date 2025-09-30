@@ -30,7 +30,7 @@ extension SwiftPriorityCache {
         }
     }
 
-    func saveIndex() throws {
+    static func saveIndex(index: SwiftPriorityCacheIndex, directory: URL) throws {
         try JSONEncoder().encode(index).write(to: SwiftPriorityCache.indexURL(directory: directory))
     }
 }
