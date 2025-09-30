@@ -8,7 +8,7 @@ public extension SwiftPriorityCache {
             // Short-circuit: Item is larger than allowed cache size
             return false
         }
-        if let capacity = directory.capacity, newSize > capacity {
+        if let capacity = directory.capacity, capacity > 0, newSize > capacity {
             // Short-circuit: Item is larger than available disk capacity
             return false
         }
