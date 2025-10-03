@@ -292,7 +292,7 @@ struct SwiftPriorityCacheTests {
 
             // vary priority
             #expect(!(await cache.canSave(priority: 0, size: 8, remoteURL: newMemberURL)))
-            #expect(await cache.canSave(priority: 1, size: 8, remoteURL: newMemberURL))
+            #expect(await cache.canSave(priority: 2, size: 8, remoteURL: newMemberURL))
 
             // vary size
             #expect(!(await cache.canSave(priority: 0, size: 2, remoteURL: newMemberURL)))
@@ -341,6 +341,34 @@ struct SwiftPriorityCacheTests {
 
             // try again to insert another item with priority 1
             #expect(await cache.canSave(priority: 1, size: 8, remoteURL: newMemberURL))
+
+            return cache
+        }
+    }
+
+    @Test
+    func fifoEvictionOrder() async throws {
+        try await withTempDirectory { dir in
+            let cache = try SwiftPriorityCache(defaultMaxTotalSize: 2, directory: dir)
+            let url1 = url("/pics/photo1.png")
+            let url2 = url("/pics/photo2.png")
+            let url3 = url("/pics/photo3.png")
+
+            try #require(await cache.save(priority: 1, data: data(ofSize: 1), remoteURL: url1))
+            try #require(await cache.save(priority: 1, data: data(ofSize: 1), remoteURL: url2))
+            #expect(cache.localURL(remoteURL: url1) != nil)
+            #expect(cache.localURL(remoteURL: url2) != nil)
+
+            #expect(await cache.canSave(priority: 1, size: 1, remoteURL: url1)) // replace: can save
+            #expect(await cache.canSave(priority: 1, size: 1, remoteURL: url2)) // replace: can save
+            #expect(await cache.canSave(priority: 0, size: 1, remoteURL: url3) == false) // lower pri: cannot save
+            #expect(await cache.canSave(priority: 1, size: 1, remoteURL: url3) == false) // equal pri: cannot save
+            #expect(await cache.canSave(priority: 2, size: 1, remoteURL: url3)) // higher pri: can save
+
+            try #require(await cache.save(priority: 2, data: data(ofSize: 1), remoteURL: url3)) // evicts url1
+            #expect(cache.localURL(remoteURL: url1) == nil)
+            #expect(cache.localURL(remoteURL: url2) != nil)
+            #expect(cache.localURL(remoteURL: url3) != nil)
 
             return cache
         }

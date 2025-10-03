@@ -13,20 +13,21 @@ public extension SwiftPriorityCache {
             return false
         }
 
-        // Accumulate size of items with greater priority, except same-key item
+        // Accumulate size of competing items
         var accumulatedSize: UInt64 = 0
         for (existingKey, existingItem) in index.items {
-            if existingItem.priority > newPriority {
-                if existingKey != newURL.sha256 {
-                    accumulatedSize += existingItem.size
-                    if accumulatedSize + newSize > index.maxTotalSize {
-                        // Short-circuit: Limit is exceeded
-                        return false
-                    }
-                }
-            } else {
+            guard existingItem.priority >= newPriority else {
                 // OK to break because items are sorted by descending priority
                 break
+            }
+            guard existingKey != newURL.sha256 else {
+                // Do not count same key item (it will be replaced)
+                continue
+            }
+            accumulatedSize += existingItem.size
+            guard accumulatedSize + newSize <= index.maxTotalSize else {
+                // Short-circuit: Limit is exceeded
+                return false
             }
         }
 
