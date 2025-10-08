@@ -53,4 +53,15 @@ public extension SwiftPriorityCache {
         }
         return localURL
     }
+
+    static func defaultDirectory() throws -> URL {
+        // `.cachesDirectory` is not used because this cache is designed to be cleared manually
+        return try URL(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+        ).appending(
+            component: "SwiftPriorityCache",
+            directoryHint: .isDirectory
+        )
+    }
 }

@@ -373,4 +373,9 @@ struct SwiftPriorityCacheTests {
             return cache
         }
     }
+
+    @Test
+    func defaultDirectory() async throws {
+        _ = try SwiftPriorityCache.defaultDirectory()
+    }
 }

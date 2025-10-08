@@ -6,15 +6,7 @@ extension SwiftPriorityCache {
     }
 
     static func makeDirectory() throws -> URL {
-        // `.cachesDirectory` is not used because this cache is designed to be cleared manually
-        let url = try URL(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            create: true
-        ).appending(
-            component: "SwiftPriorityCache",
-            directoryHint: .isDirectory
-        )
+        let url = try defaultDirectory()
         if !url.isExistingDirectory {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         }
