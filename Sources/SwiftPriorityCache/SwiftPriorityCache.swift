@@ -46,7 +46,10 @@ public actor SwiftPriorityCache {
             return false
         }
         // Store item on disk
-        try data.write(to: localURL(hash: remoteURL.sha256, pathExtension: remoteURL.pathExtension))
+        try data.write(
+            to: localURL(hash: remoteURL.sha256, pathExtension: remoteURL.pathExtension),
+            options: .atomic
+        )
         // Update index
         try updateIndex(priority: priority, size: size, remoteURL: remoteURL)
         return true

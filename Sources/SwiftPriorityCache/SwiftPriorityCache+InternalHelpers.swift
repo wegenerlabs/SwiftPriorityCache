@@ -31,6 +31,16 @@ extension SwiftPriorityCache {
     }
 
     static func saveIndex(index: SwiftPriorityCacheIndex, directory: URL) throws {
-        try JSONEncoder().encode(index).write(to: SwiftPriorityCache.indexURL(directory: directory))
+        let data = try JSONEncoder().encode(index)
+        let tmpURL = FileManager
+            .default
+            .temporaryDirectory
+            .appending(
+                component: "SwiftPriorityCacheIndex-\(UUID().uuidString).json",
+                directoryHint: .notDirectory
+            )
+        try data.write(to: tmpURL, options: .atomic)
+        let dstURL = SwiftPriorityCache.indexURL(directory: directory)
+        _ = try FileManager.default.replaceItemAt(dstURL, withItemAt: tmpURL)
     }
 }
