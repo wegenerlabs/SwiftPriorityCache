@@ -375,7 +375,42 @@ struct SwiftPriorityCacheTests {
     }
 
     @Test
-    func defaultDirectory() async throws {
-        _ = try SwiftPriorityCache.defaultDirectory()
+    func defaultDirectoryCache() async throws {
+        let url1 = try SwiftPriorityCache.defaultDirectory()
+        let url2 = try SwiftPriorityCache.makeDirectory()
+        #expect(url1 == url2)
+        #expect(url1.lastPathComponent == "com.wegenerlabs.SwiftPriorityCache")
+
+        var isDir: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: url2.path, isDirectory: &isDir)
+        #expect(exists)
+        #expect(isDir.boolValue)
+
+        let resourceValues = try url2.resourceValues(forKeys: [.isDirectoryKey, .isExcludedFromBackupKey])
+        #expect(resourceValues.isDirectory == true)
+        #expect(resourceValues.isExcludedFromBackup == true)
+
+        let defaultMaxTotalSize: UInt64 = 6
+        var cache: SwiftPriorityCache? = try SwiftPriorityCache(defaultMaxTotalSize: defaultMaxTotalSize)
+        #expect(await cache?.directory == url2)
+
+        let filePriority: UInt64 = 2
+        let fileSize: UInt64 = 5
+        let fileData = data(ofSize: Int(fileSize))
+        let fileURL = url("/pics/photo1.png")
+        #expect(try await cache!.save(priority: filePriority, data: fileData, remoteURL: fileURL))
+        let localURL = cache!.localURL(remoteURL: fileURL)!
+        #expect(try Data(contentsOf: localURL) == fileData)
+        let expectedIndex = SwiftPriorityCacheIndex(
+            maxTotalSize: defaultMaxTotalSize,
+            items: [
+                fileURL.sha256: SwiftPriorityCacheItem(priority: filePriority, size: fileSize, pathExtension: "png"),
+            ]
+        )
+        #expect(await cache!.index == expectedIndex)
+        try await cache?.clear()
+
+        cache = nil
+        try FileManager.default.removeItem(at: url2)
     }
 }

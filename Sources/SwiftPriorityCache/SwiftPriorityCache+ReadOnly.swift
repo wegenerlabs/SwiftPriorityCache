@@ -60,7 +60,10 @@ public extension SwiftPriorityCache {
             for: .applicationSupportDirectory,
             in: .userDomainMask,
         ).appending(
-            component: "SwiftPriorityCache",
+            component: Bundle.main.bundleIdentifier ?? libraryBundleIdentifier,
+            directoryHint: .isDirectory
+        ).appending(
+            component: libraryBundleIdentifier,
             directoryHint: .isDirectory
         )
     }

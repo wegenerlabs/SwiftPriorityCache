@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import os
 
 extension URL {
     var isExistingDirectory: Bool {
@@ -30,6 +31,7 @@ extension URL {
             }
             return UInt64(capacity)
         } catch {
+            Logger(.capacity).error(error)
             return nil
         }
     }

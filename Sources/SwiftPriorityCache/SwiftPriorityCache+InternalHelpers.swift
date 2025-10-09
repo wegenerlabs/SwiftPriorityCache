@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 extension SwiftPriorityCache {
     private static func indexURL(directory: URL) -> URL {
@@ -6,9 +7,16 @@ extension SwiftPriorityCache {
     }
 
     static func makeDirectory() throws -> URL {
-        let url = try defaultDirectory()
+        var url = try defaultDirectory()
         if !url.isExistingDirectory {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            var resourceValues = URLResourceValues()
+            resourceValues.isExcludedFromBackup = true
+            do {
+                try url.setResourceValues(resourceValues)
+            } catch {
+                Logger(.makeDirectory).error(error)
+            }
         }
         return url
     }
@@ -34,5 +42,9 @@ extension SwiftPriorityCache {
         try data.write(to: tmpURL, options: .atomic)
         let dstURL = SwiftPriorityCache.indexURL(directory: directory)
         _ = try FileManager.default.replaceItemAt(dstURL, withItemAt: tmpURL)
+    }
+
+    static var libraryBundleIdentifier: String {
+        return "com.wegenerlabs.SwiftPriorityCache"
     }
 }
