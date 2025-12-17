@@ -38,8 +38,9 @@ public actor SwiftPriorityCache {
         try self.init(defaultMaxTotalSize: defaultMaxTotalSize, directory: SwiftPriorityCache.makeDirectory())
     }
 
-    /// Loads a cache in a custom directory. Creates a new cache if none exists.
+    /// Loads a cache in a custom directory that must already exist. Creates a new cache if none exists.
     public init(defaultMaxTotalSize: UInt64, directory: URL) throws {
+        assert(directory.isExistingDirectory)
         self.directory = directory
         index = try SwiftPriorityCache.makeIndex(defaultMaxTotalSize: defaultMaxTotalSize, directory: directory)
         try SwiftPriorityCache.saveIndex(index: index, directory: directory)
