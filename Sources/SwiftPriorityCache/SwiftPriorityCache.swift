@@ -126,8 +126,7 @@ public actor SwiftPriorityCache {
 
     /// Removes all cached items and resets the index. The maximum total size is retained.
     public func clear() throws {
-        try FileManager.default.removeItem(at: directory)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try directory.clearDirectory()
         index = SwiftPriorityCacheIndex(maxTotalSize: index.maxTotalSize)
         try SwiftPriorityCache.saveIndex(index: index, directory: directory)
     }

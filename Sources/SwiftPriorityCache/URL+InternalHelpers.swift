@@ -35,4 +35,16 @@ extension URL {
             return nil
         }
     }
+
+    func clearDirectory() throws {
+        assert(isExistingDirectory)
+        let contents = try FileManager.default.contentsOfDirectory(
+            at: self,
+            includingPropertiesForKeys: nil,
+            options: []
+        )
+        for item in contents {
+            try FileManager.default.removeItem(at: item)
+        }
+    }
 }
