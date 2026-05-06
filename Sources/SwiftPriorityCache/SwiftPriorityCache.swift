@@ -10,17 +10,6 @@ public struct SwiftPriorityCacheItem: Codable, Sendable, Equatable {
 public struct SwiftPriorityCacheIndex: Codable, Sendable, Equatable {
     public var maxTotalSize: UInt64
     public var items = OrderedDictionary<String, SwiftPriorityCacheItem>()
-
-    init(maxTotalSize: UInt64) {
-        self.maxTotalSize = maxTotalSize
-    }
-
-    #if DEBUG
-        init(maxTotalSize: UInt64, items: OrderedDictionary<String, SwiftPriorityCacheItem>) {
-            self.maxTotalSize = maxTotalSize
-            self.items = items
-        }
-    #endif
 }
 
 public extension SwiftPriorityCacheIndex {

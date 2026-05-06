@@ -58,7 +58,7 @@ public extension SwiftPriorityCache {
         // `.cachesDirectory` is not used because this cache is designed to be cleared manually
         return try URL(
             for: .applicationSupportDirectory,
-            in: .userDomainMask,
+            in: .userDomainMask
         ).appending(
             component: Bundle.main.bundleIdentifier ?? libraryBundleIdentifier,
             directoryHint: .isDirectory

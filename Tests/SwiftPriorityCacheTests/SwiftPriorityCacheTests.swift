@@ -391,15 +391,15 @@ struct SwiftPriorityCacheTests {
         #expect(resourceValues.isExcludedFromBackup == true)
 
         let defaultMaxTotalSize: UInt64 = 6
-        var cache: SwiftPriorityCache? = try SwiftPriorityCache(defaultMaxTotalSize: defaultMaxTotalSize)
-        #expect(await cache?.directory == url2)
+        let cache = try SwiftPriorityCache(defaultMaxTotalSize: defaultMaxTotalSize)
+        #expect(await cache.directory == url2)
 
         let filePriority: UInt64 = 2
         let fileSize: UInt64 = 5
         let fileData = data(ofSize: Int(fileSize))
         let fileURL = url("/pics/photo1.png")
-        #expect(try await cache!.save(priority: filePriority, data: fileData, remoteURL: fileURL))
-        let localURL = cache!.localURL(remoteURL: fileURL)!
+        #expect(try await cache.save(priority: filePriority, data: fileData, remoteURL: fileURL))
+        let localURL = try #require(cache.localURL(remoteURL: fileURL))
         #expect(try Data(contentsOf: localURL) == fileData)
         let expectedIndex = SwiftPriorityCacheIndex(
             maxTotalSize: defaultMaxTotalSize,
@@ -407,10 +407,9 @@ struct SwiftPriorityCacheTests {
                 fileURL.sha256: SwiftPriorityCacheItem(priority: filePriority, size: fileSize, pathExtension: "png"),
             ]
         )
-        #expect(await cache!.index == expectedIndex)
-        try await cache?.clear()
+        #expect(await cache.index == expectedIndex)
+        try await cache.clear()
 
-        cache = nil
         try FileManager.default.removeItem(at: url2)
     }
 }
