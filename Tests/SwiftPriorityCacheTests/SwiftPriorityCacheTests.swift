@@ -103,6 +103,8 @@ struct SwiftPriorityCacheTests {
             #expect(item.priority == 10)
             #expect(item.size == data.count)
             #expect(item.pathExtension == "csv")
+            let helperItem = await cache.item(remoteURL: url)
+            #expect(item == helperItem)
 
             // Check cache integrity
             try await cache.checkIntegrity()

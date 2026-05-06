@@ -36,7 +36,12 @@ public extension SwiftPriorityCache {
 
     /// Returns true if an item with a given remote URL is cached.
     func contains(remoteURL: URL) -> Bool {
-        return index.items[remoteURL.sha256] != nil
+        return item(remoteURL: remoteURL) != nil
+    }
+
+    /// Returns metadata if an item with a given remote URL is cached.
+    func item(remoteURL: URL) -> SwiftPriorityCacheItem? {
+        return index.items[remoteURL.sha256]
     }
 
     /// Returns a local cache URL for a given remote URL. Does not check existence.
