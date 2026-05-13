@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 import os
 
@@ -12,9 +11,7 @@ extension URL {
     }
 
     var sha256: String {
-        let bytes = Data(absoluteString.utf8)
-        let digest = SHA256.hash(data: bytes)
-        return digest.map { String(format: "%02x", $0) }.joined()
+        return SwiftPriorityCache.hash(url: self)
     }
 
     var capacity: UInt64? {

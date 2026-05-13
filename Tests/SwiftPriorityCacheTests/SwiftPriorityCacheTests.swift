@@ -1,6 +1,80 @@
+import Combine
 import Foundation
 @testable import SwiftPriorityCache
 import Testing
+
+@MainActor
+private final class CacheAvailabilityEventRecorder {
+    let notifier = CacheAvailabilityNotifier()
+    private var cancellable: AnyCancellable?
+    private var events = [CacheAvailabilityEvent]()
+
+    init() {
+        cancellable = notifier.publisher.sink { [weak self] event in
+            self?.events.append(
+                CacheAvailabilityEvent(
+                    hash: event.hash,
+                    isAvailable: event.isAvailable
+                )
+            )
+        }
+    }
+
+    var snapshot: [CacheAvailabilityEvent] {
+        events
+    }
+}
+
+private func makeCache(defaultMaxTotalSize: UInt64, directory: URL) async throws -> SwiftPriorityCache {
+    let notifier = await MainActor.run {
+        CacheAvailabilityNotifier()
+    }
+    return try SwiftPriorityCache(
+        defaultMaxTotalSize: defaultMaxTotalSize,
+        directory: directory,
+        availabilityNotifier: notifier
+    )
+}
+
+@MainActor
+private func makeCache(
+    defaultMaxTotalSize: UInt64,
+    directory: URL,
+    recorder: CacheAvailabilityEventRecorder
+) async throws -> SwiftPriorityCache {
+    try SwiftPriorityCache(
+        defaultMaxTotalSize: defaultMaxTotalSize,
+        directory: directory,
+        availabilityNotifier: recorder.notifier
+    )
+}
+
+private func makeCache(defaultMaxTotalSize: UInt64) async throws -> SwiftPriorityCache {
+    let notifier = await MainActor.run {
+        CacheAvailabilityNotifier()
+    }
+    return try SwiftPriorityCache(
+        defaultMaxTotalSize: defaultMaxTotalSize,
+        availabilityNotifier: notifier
+    )
+}
+
+@MainActor
+private func waitForEvents(
+    _ recorder: CacheAvailabilityEventRecorder,
+    count: Int,
+    timeout: Duration = .seconds(2)
+) async throws -> [CacheAvailabilityEvent] {
+    let start = ContinuousClock.now
+    while start.duration(to: ContinuousClock.now) < timeout {
+        let events = recorder.snapshot
+        if events.count >= count {
+            return events
+        }
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    return recorder.snapshot
+}
 
 private func withTempDirectory(_ body: (URL) async throws -> SwiftPriorityCache) async throws {
     let tmpRoot = FileManager.default.temporaryDirectory
@@ -77,7 +151,7 @@ struct SwiftPriorityCacheTests {
     @Test
     func simpleExample() async throws {
         try await withTempDirectory { dir in
-            let cache = try SwiftPriorityCache(defaultMaxTotalSize: 100 * 1024 * 1024, directory: dir)
+            let cache = try await makeCache(defaultMaxTotalSize: 100 * 1024 * 1024, directory: dir)
 
             // Load remote data
             let url = URL(string: "https://example.com/data.csv")!
@@ -125,7 +199,7 @@ struct SwiftPriorityCacheTests {
             #expect(!indexURL.isExistingRegularFile)
 
             let defaultMax: UInt64 = 1024
-            let cache = try SwiftPriorityCache(defaultMaxTotalSize: defaultMax, directory: dir)
+            let cache = try await makeCache(defaultMaxTotalSize: defaultMax, directory: dir)
 
             // The in-memory index should reflect the default max for a brand new cache
             #expect(await cache.maxTotalSize == defaultMax)
@@ -141,7 +215,7 @@ struct SwiftPriorityCacheTests {
     @Test
     func saveInsertsByPriorityAndEvictsLowestUntilWithinMax() async throws {
         try await withTempDirectory { dir in
-            let cache = try SwiftPriorityCache(defaultMaxTotalSize: 120, directory: dir)
+            let cache = try await makeCache(defaultMaxTotalSize: 120, directory: dir)
 
             // Save two items that fit exactly
             try #require(await cache.save(priority: 10, data: data(ofSize: 60), remoteURL: url("/img/high.jpg")))
@@ -170,7 +244,7 @@ struct SwiftPriorityCacheTests {
     @Test
     func saveWithSameKeyReplacesItemAndUpdatesIndex() async throws {
         try await withTempDirectory { dir in
-            let cache = try SwiftPriorityCache(defaultMaxTotalSize: 1000, directory: dir)
+            let cache = try await makeCache(defaultMaxTotalSize: 1000, directory: dir)
             let remote = url("/asset/file.bin")
 
             // Initial save
@@ -195,7 +269,7 @@ struct SwiftPriorityCacheTests {
     @Test
     func setMaxTotalSizeEvictsAsNeeded() async throws {
         try await withTempDirectory { dir in
-            let cache = try SwiftPriorityCache(defaultMaxTotalSize: 1000, directory: dir)
+            let cache = try await makeCache(defaultMaxTotalSize: 1000, directory: dir)
 
             try #require(await cache.save(priority: 10, data: data(ofSize: 30), remoteURL: url("/a.png")))
             try #require(await cache.save(priority: 5, data: data(ofSize: 30), remoteURL: url("/b.png")))
@@ -216,7 +290,7 @@ struct SwiftPriorityCacheTests {
     @Test
     func clearRemovesFilesResetsIndexButKeepsMax() async throws {
         try await withTempDirectory { dir in
-            let cache = try SwiftPriorityCache(defaultMaxTotalSize: 512, directory: dir)
+            let cache = try await makeCache(defaultMaxTotalSize: 512, directory: dir)
 
             try #require(await cache.save(priority: 1, data: data(ofSize: 100), remoteURL: url("/c.dat")))
             let beforeClearMax = await cache.maxTotalSize
@@ -242,7 +316,7 @@ struct SwiftPriorityCacheTests {
     @Test
     func localURLHelpersMatchExpectedFilenames() async throws {
         try await withTempDirectory { dir in
-            let cache = try SwiftPriorityCache(defaultMaxTotalSize: 1000, directory: dir)
+            let cache = try await makeCache(defaultMaxTotalSize: 1000, directory: dir)
             let remoteWithExt = url("/pics/photo.png")
             let remoteNoExt = url("/docs/readme")
 
@@ -273,7 +347,7 @@ struct SwiftPriorityCacheTests {
             #expect(dir.isExistingDirectory)
             #expect(!dir.isExistingRegularFile)
             #expect(dir.capacity! > 0)
-            let cache = try SwiftPriorityCache(defaultMaxTotalSize: 0, directory: dir)
+            let cache = try await makeCache(defaultMaxTotalSize: 0, directory: dir)
             try await cache.checkIntegrity()
             try await cache.clear() // trigger index save
             let indexURL = dir.appending(path: "SwiftPriorityCacheIndex.json", directoryHint: .notDirectory)
@@ -287,7 +361,7 @@ struct SwiftPriorityCacheTests {
     @Test
     func canSave() async throws {
         try await withTempDirectory { dir in
-            let cache = try SwiftPriorityCache(defaultMaxTotalSize: 8, directory: dir)
+            let cache = try await makeCache(defaultMaxTotalSize: 8, directory: dir)
             let existingMemberURL = url("/pics/photo.png")
             let newMemberURL = url("/docs/readme")
             try #require(await cache.save(priority: 1, data: data(ofSize: 7), remoteURL: existingMemberURL))
@@ -311,7 +385,7 @@ struct SwiftPriorityCacheTests {
     @Test
     func testRemove() async throws {
         try await withTempDirectory { dir in
-            let cache = try SwiftPriorityCache(defaultMaxTotalSize: 100, directory: dir)
+            let cache = try await makeCache(defaultMaxTotalSize: 100, directory: dir)
             let remoteURL = url("/pics/photo.png")
             try #require(await cache.save(priority: 6, data: data(ofSize: 100), remoteURL: remoteURL))
             try #require(await cache.index.totalSize == 100)
@@ -330,7 +404,7 @@ struct SwiftPriorityCacheTests {
     @Test
     func changePriority() async throws {
         try await withTempDirectory { dir in
-            let cache = try SwiftPriorityCache(defaultMaxTotalSize: 8, directory: dir)
+            let cache = try await makeCache(defaultMaxTotalSize: 8, directory: dir)
             let existingMemberURL = url("/pics/photo.png")
             let newMemberURL = url("/docs/readme")
             try #require(await cache.save(priority: 2, data: data(ofSize: 8), remoteURL: existingMemberURL))
@@ -351,7 +425,7 @@ struct SwiftPriorityCacheTests {
     @Test
     func fifoEvictionOrder() async throws {
         try await withTempDirectory { dir in
-            let cache = try SwiftPriorityCache(defaultMaxTotalSize: 2, directory: dir)
+            let cache = try await makeCache(defaultMaxTotalSize: 2, directory: dir)
             let url1 = url("/pics/photo1.png")
             let url2 = url("/pics/photo2.png")
             let url3 = url("/pics/photo3.png")
@@ -376,6 +450,145 @@ struct SwiftPriorityCacheTests {
         }
     }
 
+    @MainActor
+    @Test
+    func savePublishesAvailableEvent() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(
+            path: "SwiftPriorityCacheTests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let recorder = CacheAvailabilityEventRecorder()
+        let cache = try await makeCache(defaultMaxTotalSize: 100, directory: dir, recorder: recorder)
+        let remoteURL = url("/events/save.png")
+
+        try #require(await cache.save(priority: 1, data: data(ofSize: 10), remoteURL: remoteURL))
+
+        let events = try await waitForEvents(recorder, count: 1)
+        #expect(events == [
+            CacheAvailabilityEvent(hash: remoteURL.sha256, isAvailable: true),
+        ])
+        try await cache.checkIntegrity()
+    }
+
+    @MainActor
+    @Test
+    func saveEvictionPublishesUnavailableAndAvailableEvents() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(
+            path: "SwiftPriorityCacheTests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let recorder = CacheAvailabilityEventRecorder()
+        let cache = try await makeCache(defaultMaxTotalSize: 2, directory: dir, recorder: recorder)
+        let firstURL = url("/events/first.png")
+        let secondURL = url("/events/second.png")
+        let thirdURL = url("/events/third.png")
+
+        try #require(await cache.save(priority: 1, data: data(ofSize: 1), remoteURL: firstURL))
+        try #require(await cache.save(priority: 1, data: data(ofSize: 1), remoteURL: secondURL))
+        _ = try await waitForEvents(recorder, count: 2)
+
+        try #require(await cache.save(priority: 2, data: data(ofSize: 1), remoteURL: thirdURL))
+
+        let events = try await waitForEvents(recorder, count: 4)
+        let evictionEvents = Array(events.dropFirst(2))
+        #expect(evictionEvents.contains(
+            CacheAvailabilityEvent(hash: firstURL.sha256, isAvailable: false)
+        ))
+        #expect(evictionEvents.contains(
+            CacheAvailabilityEvent(hash: thirdURL.sha256, isAvailable: true)
+        ))
+        try await cache.checkIntegrity()
+    }
+
+    @MainActor
+    @Test
+    func removePublishesUnavailableEvent() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(
+            path: "SwiftPriorityCacheTests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let recorder = CacheAvailabilityEventRecorder()
+        let cache = try await makeCache(defaultMaxTotalSize: 100, directory: dir, recorder: recorder)
+        let remoteURL = url("/events/remove.png")
+
+        try #require(await cache.save(priority: 1, data: data(ofSize: 10), remoteURL: remoteURL))
+        _ = try await waitForEvents(recorder, count: 1)
+
+        try await cache.remove(remoteURL: remoteURL)
+
+        let events = try await waitForEvents(recorder, count: 2)
+        #expect(events.last == CacheAvailabilityEvent(hash: remoteURL.sha256, isAvailable: false))
+        try await cache.checkIntegrity()
+    }
+
+    @MainActor
+    @Test
+    func clearPublishesUnavailableEventsForCachedItems() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(
+            path: "SwiftPriorityCacheTests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let recorder = CacheAvailabilityEventRecorder()
+        let cache = try await makeCache(defaultMaxTotalSize: 100, directory: dir, recorder: recorder)
+        let firstURL = url("/events/clear-first.png")
+        let secondURL = url("/events/clear-second.png")
+
+        try #require(await cache.save(priority: 2, data: data(ofSize: 10), remoteURL: firstURL))
+        try #require(await cache.save(priority: 1, data: data(ofSize: 10), remoteURL: secondURL))
+        _ = try await waitForEvents(recorder, count: 2)
+
+        try await cache.clear()
+
+        let events = try await waitForEvents(recorder, count: 4)
+        let clearEvents = Array(events.dropFirst(2)).sorted { $0.hash < $1.hash }
+        let expectedEvents = [
+            CacheAvailabilityEvent(hash: firstURL.sha256, isAvailable: false),
+            CacheAvailabilityEvent(hash: secondURL.sha256, isAvailable: false),
+        ].sorted { $0.hash < $1.hash }
+        #expect(clearEvents == expectedEvents)
+        try await cache.checkIntegrity()
+    }
+
+    @MainActor
+    @Test
+    func changePriorityDoesNotPublishAvailabilityEvent() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(
+            path: "SwiftPriorityCacheTests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let recorder = CacheAvailabilityEventRecorder()
+        let cache = try await makeCache(defaultMaxTotalSize: 100, directory: dir, recorder: recorder)
+        let remoteURL = url("/events/change.png")
+
+        try #require(await cache.save(priority: 1, data: data(ofSize: 10), remoteURL: remoteURL))
+        let saveEvents = try await waitForEvents(recorder, count: 1)
+        #expect(saveEvents == [
+            CacheAvailabilityEvent(hash: remoteURL.sha256, isAvailable: true),
+        ])
+
+        try #require(await cache.changePriority(2, remoteURL: remoteURL))
+        try await Task.sleep(for: .milliseconds(100))
+
+        let eventsAfterChange = recorder.snapshot
+        #expect(eventsAfterChange == saveEvents)
+        try await cache.checkIntegrity()
+    }
+
     @Test
     func defaultDirectoryCache() async throws {
         let url1 = try SwiftPriorityCache.defaultDirectory()
@@ -393,7 +606,7 @@ struct SwiftPriorityCacheTests {
         #expect(resourceValues.isExcludedFromBackup == true)
 
         let defaultMaxTotalSize: UInt64 = 6
-        let cache = try SwiftPriorityCache(defaultMaxTotalSize: defaultMaxTotalSize)
+        let cache = try await makeCache(defaultMaxTotalSize: defaultMaxTotalSize)
         #expect(await cache.directory == url2)
 
         let filePriority: UInt64 = 2

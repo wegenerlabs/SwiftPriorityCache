@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import OrderedCollections
 
@@ -21,18 +22,20 @@ public extension SwiftPriorityCacheIndex {
 public actor SwiftPriorityCache {
     public let directory: URL
     public private(set) var index: SwiftPriorityCacheIndex
+    public let availabilityNotifier: CacheAvailabilityNotifier?
 
     /// Loads a cache in the default directory. Creates a new cache if none exists.
-    public init(defaultMaxTotalSize: UInt64) throws {
-        try self.init(defaultMaxTotalSize: defaultMaxTotalSize, directory: SwiftPriorityCache.makeDirectory())
+    public init(defaultMaxTotalSize: UInt64, availabilityNotifier: CacheAvailabilityNotifier?) throws {
+        try self.init(defaultMaxTotalSize: defaultMaxTotalSize, directory: SwiftPriorityCache.makeDirectory(), availabilityNotifier: availabilityNotifier)
     }
 
     /// Loads a cache in a custom directory that must already exist. Creates a new cache if none exists.
-    public init(defaultMaxTotalSize: UInt64, directory: URL) throws {
+    public init(defaultMaxTotalSize: UInt64, directory: URL, availabilityNotifier: CacheAvailabilityNotifier?) throws {
         assert(directory.isExistingDirectory)
         self.directory = directory
         index = try SwiftPriorityCache.makeIndex(defaultMaxTotalSize: defaultMaxTotalSize, directory: directory)
         try SwiftPriorityCache.saveIndex(index: index, directory: directory)
+        self.availabilityNotifier = availabilityNotifier
     }
 
     /// Adds an item to the cache. Evicts other items if necessary. Returns true if the item was cached.
@@ -43,12 +46,15 @@ public actor SwiftPriorityCache {
             return false
         }
         // Store item on disk
+        let hash = remoteURL.sha256
         try data.write(
-            to: localURL(hash: remoteURL.sha256, pathExtension: remoteURL.pathExtension),
+            to: localURL(hash: hash, pathExtension: remoteURL.pathExtension),
             options: .atomic
         )
         // Update index
         try updateIndex(priority: priority, size: size, remoteURL: remoteURL)
+        // Notify listeners
+        notify(events: [CacheAvailabilityEvent(hash: hash, isAvailable: true)])
         return true
     }
 
@@ -91,12 +97,16 @@ public actor SwiftPriorityCache {
 
     private func finalize() throws {
         // Evict items from the back until the cache is within the size limit
+        var events = [CacheAvailabilityEvent]()
         while index.totalSize > index.maxTotalSize {
             let element = index.items.removeLast()
             try FileManager.default.removeItem(at: localURL(hash: element.key, pathExtension: element.value.pathExtension))
+            events.append(CacheAvailabilityEvent(hash: element.key, isAvailable: false))
         }
         // Persist index
         try SwiftPriorityCache.saveIndex(index: index, directory: directory)
+        // Notify listeners
+        notify(events: events)
     }
 
     private func localURL(hash: String, pathExtension: String) -> URL {
@@ -109,15 +119,30 @@ public actor SwiftPriorityCache {
         if let localURL = localURL(remoteURL: remoteURL) {
             try FileManager.default.removeItem(at: localURL)
         }
-        if let _ = index.items.removeValue(forKey: remoteURL.sha256) {
+        let hash = remoteURL.sha256
+        if let _ = index.items.removeValue(forKey: hash) {
             try SwiftPriorityCache.saveIndex(index: index, directory: directory)
         }
+        // Notify listeners
+        notify(events: [CacheAvailabilityEvent(hash: hash, isAvailable: false)])
     }
 
     /// Removes all cached items and resets the index. The maximum total size is retained.
     public func clear() throws {
+        let events = index.items.keys.map { CacheAvailabilityEvent(hash: $0, isAvailable: false) }
         try directory.clearDirectory()
         index = SwiftPriorityCacheIndex(maxTotalSize: index.maxTotalSize)
         try SwiftPriorityCache.saveIndex(index: index, directory: directory)
+        // Notify listeners
+        notify(events: events)
+    }
+
+    private func notify(events: [CacheAvailabilityEvent]) {
+        guard !events.isEmpty else {
+            return
+        }
+        DispatchQueue.main.async { [weak availabilityNotifier] in
+            availabilityNotifier?.notify(events: events)
+        }
     }
 }

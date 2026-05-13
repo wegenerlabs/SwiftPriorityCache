@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Public read-only API for `SwiftPriorityCache`.
@@ -71,5 +72,12 @@ public extension SwiftPriorityCache {
             component: libraryBundleIdentifier,
             directoryHint: .isDirectory
         )
+    }
+
+    /// Returns the SHA256 hash of the given URL.
+    static func hash(url: URL) -> String {
+        let bytes = Data(url.absoluteString.utf8)
+        let digest = SHA256.hash(data: bytes)
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 }
